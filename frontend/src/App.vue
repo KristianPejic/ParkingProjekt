@@ -7,6 +7,7 @@
           <router-link to="/" class="nav-link">Detection</router-link>
           <router-link to="/history" class="nav-link">History</router-link>
           <router-link to="/stats" class="nav-link">Statistics</router-link>
+          <router-link to="/train" class="nav-link">Train</router-link>
         </nav>
       </div>
     </header>

@@ -11,6 +11,14 @@ import numpy as np
 from ultralytics import YOLO
 import firebase_admin
 from firebase_admin import credentials, firestore
+from pathlib import Path
+from scipy.cluster.vq import kmeans2
+
+# Optional KaggleHub import for dataset download in training endpoint
+try:
+    import kagglehub  # type: ignore
+except Exception:
+    kagglehub = None  # Will be checked at runtime
 
 # Initialize FastAPI app
 app = FastAPI(title="Parking Detection System", version="1.0.0")
@@ -1887,6 +1895,119 @@ async def test_class67(file: UploadFile = File(...)):
         "total_vehicles_found": cars_as_class2 + cars_as_class67,
         "explanation": "Class 67 'cell phone' detections in parking lots are usually misclassified cars"
     }
+
+@app.get("/train")
+async def classic_train(limit: int = 50):
+    """
+    Classic training/analysis over the PKLot dataset using simple CV features and KMeans clustering.
+    Returns dataset stats, feature summaries, clusters, and chart-ready data for frontend visualization.
+    """
+    try:
+        if kagglehub is None:
+            raise HTTPException(status_code=500, detail="kagglehub not available. Please install kagglehub.")
+
+        # 1) Download or access PKLot dataset via KaggleHub
+        dataset_path_str = kagglehub.dataset_download("ammarnassanalhajali/pklot-dataset")
+        dataset_path = Path(dataset_path_str)
+
+        # 2) Find images (JPG/PNG) recursively
+        image_paths = [p for p in dataset_path.rglob("*") if p.suffix.lower() in [".jpg", ".jpeg", ".png"]]
+        total_found = len(image_paths)
+        if total_found == 0:
+            raise HTTPException(status_code=404, detail="No images found in PKLot dataset.")
+
+        # 3) Sample up to 'limit' images for a quick pass
+        subset = image_paths[: max(1, min(limit, total_found))]
+
+        # 4) Extract simple classical CV features per image
+        #    - white_ratio: proportion of bright pixels (proxy for painted lines)
+        #    - edge_density: density of Canny edges (structure richness)
+        #    - mean_brightness: average grayscale intensity
+        features = []
+        white_ratios = []
+        edge_densities = []
+        mean_brightnesses = []
+
+        for p in subset:
+            img = cv2.imdecode(np.fromfile(str(p), dtype=np.uint8), cv2.IMREAD_COLOR)
+            if img is None:
+                continue
+
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            mean_brightness = float(np.mean(gray))
+            white_ratio = float(np.mean(gray >= 170))
+
+            edges = cv2.Canny(gray, 100, 200)
+            edge_density = float(np.mean(edges > 0))
+
+            # Normalize brightness to [0,1] for clustering
+            features.append([white_ratio, edge_density, mean_brightness / 255.0])
+            white_ratios.append(white_ratio)
+            edge_densities.append(edge_density)
+            mean_brightnesses.append(mean_brightness)
+
+        if not features:
+            raise HTTPException(status_code=500, detail="Failed to extract features from images.")
+
+        X = np.array(features, dtype=np.float32)
+
+        # 5) Cluster with KMeans (k=3) via SciPy (no external ML deps)
+        k = 3 if len(X) >= 3 else max(1, len(X))
+        centers, labels = kmeans2(X, k=k, minit='points')
+
+        # 6) Build chart-ready data
+        # Histogram for white_ratio
+        hist_bins = 20
+        counts, bin_edges = np.histogram(white_ratios, bins=hist_bins, range=(0.0, 1.0))
+        histogram = {
+            "bins": bin_edges.tolist(),
+            "counts": counts.tolist(),
+            "label": "White ratio (bright pixels fraction)"
+        }
+
+        # Scatter (white_ratio vs edge_density)
+        scatter = {
+            "x_label": "White ratio",
+            "y_label": "Edge density",
+            "points": [{"x": float(x), "y": float(y), "c": int(c)} for (x, y), c in zip(zip(white_ratios, edge_densities), labels)]
+        }
+
+        # Cluster summaries
+        cluster_counts = [int(np.sum(labels == i)) for i in range(k)]
+        cluster_centers = centers.tolist()
+
+        # Feature summaries
+        feat_summary = {
+            "mean_white_ratio": float(np.mean(white_ratios)),
+            "mean_edge_density": float(np.mean(edge_densities)),
+            "mean_brightness": float(np.mean(mean_brightnesses)),
+        }
+
+        return {
+            "success": True,
+            "dataset": {
+                "path": str(dataset_path),
+                "total_images_found": total_found,
+                "processed_images": len(X),
+            },
+            "features_summary": feat_summary,
+            "clusters": {
+                "k": k,
+                "centers": cluster_centers,
+                "counts": cluster_counts
+            },
+            "charts": {
+                "histogram": histogram,
+                "scatter": scatter
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Training error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn
