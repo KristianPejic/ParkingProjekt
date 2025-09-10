@@ -35,17 +35,31 @@
             </div>
           </div>
           <div class="card">
-            <div class="icon">🧩</div>
+            <div class="icon">❌</div>
             <div class="info">
-              <div class="value">{{ result.clusters.k }}</div>
-              <div class="label">Clusters (KMeans)</div>
+              <div class="value">{{ result.dataset.failed_images }}</div>
+              <div class="label">Failed</div>
             </div>
           </div>
           <div class="card">
-            <div class="icon">💡</div>
+            <div class="icon">📈</div>
             <div class="info">
-              <div class="value">{{ (result.features_summary.mean_white_ratio * 100).toFixed(1) }}%</div>
-              <div class="label">Avg White Ratio</div>
+              <div class="value">{{ (result.dataset.processing_success_rate || 0).toFixed(1) }}%</div>
+              <div class="label">Success Rate</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="icon">🧠</div>
+            <div class="info">
+              <div class="value">{{ result.model_type }}</div>
+              <div class="label">Model</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="icon">⭐</div>
+            <div class="info">
+              <div class="value">{{ (result.clustering_performance?.silhouette_score || 0).toFixed(3) }}</div>
+              <div class="label">Silhouette Score</div>
             </div>
           </div>
 
@@ -72,52 +86,45 @@
 
         <div class="charts">
           <div class="chart">
-            <h3>White Ratio Histogram — painted line visibility across dataset</h3>
+            <h3>{{ h0Name }} Histogram</h3>
             <svg :width="chartW" :height="chartH" class="svg-chart">
               <g :transform="`translate(${m.l},${m.t})`">
                 <rect 
-                  v-for="(c, i) in result.charts.histogram.counts" 
+                  v-for="(c, i) in h0Counts" 
                   :key="i"
                   :x="xScale(i)"
-                  :y="yScale(c)"
+                  :y="yScaleH0(c)"
                   :width="barWidth - 2"
-                  :height="chartInnerH - yScale(c)"
+                  :height="chartInnerH - yScaleH0(c)"
                   class="bar"
                 />
-                <line 
-                  :x1="0" :y1="chartInnerH" 
-                  :x2="chartInnerW" :y2="chartInnerH" 
-                  class="axis"
-                />
-                <text 
-                  v-for="tick in yTicks" :key="`yt${tick}`"
-                  :x="-6" :y="yScale(tick)" text-anchor="end" dominant-baseline="middle" class="tick"
-                >{{ tick }}</text>
+                <line :x1="0" :y1="chartInnerH" :x2="chartInnerW" :y2="chartInnerH" class="axis" />
+                <text v-for="tick in h0Ticks" :key="`h0-${tick}`" :x="-6" :y="yScaleH0(tick)" text-anchor="end" dominant-baseline="middle" class="tick">{{ tick }}</text>
               </g>
             </svg>
-            <div class="axis-label">Bins (0 → 1 white ratio)</div>
+            <div class="axis-label">Distribution of {{ h0Name }}</div>
           </div>
 
           <div class="chart">
-            <h3>Scatter — painted lines vs structural edges (colored by cluster)</h3>
+            <h3>Scatter — PCA classical features (colored by cluster)</h3>
             <svg :width="chartW" :height="chartH" class="svg-chart">
               <g :transform="`translate(${m.l},${m.t})`">
                 <circle 
-                  v-for="(pt, i) in result.charts.scatter.points" 
+                  v-for="(pt, i) in sPts" 
                   :key="i"
                   :cx="scatterX(pt.x)"
                   :cy="scatterY(pt.y)"
                   r="4"
-                  :class="`dot c${pt.c}`"
+                  :class="`dot c${(pt.cluster ?? 0)}`"
                 />
                 <line :x1="0" :y1="chartInnerH" :x2="chartInnerW" :y2="chartInnerH" class="axis" />
                 <line :x1="0" :y1="0" :x2="0" :y2="chartInnerH" class="axis" />
-                <text :x="chartInnerW/2" :y="chartInnerH + 30" text-anchor="middle" class="axis-title">White ratio</text>
-                <text :x="-chartInnerH/2" :y="-35" transform="rotate(-90)" text-anchor="middle" class="axis-title">Edge density</text>
+                <text :x="chartInnerW/2" :y="chartInnerH + 30" text-anchor="middle" class="axis-title">PC1</text>
+                <text :x="-chartInnerH/2" :y="-35" transform="rotate(-90)" text-anchor="middle" class="axis-title">PC2</text>
               </g>
             </svg>
             <div class="legend">
-              <div v-for="(cnt, idx) in result.clusters.counts" :key="idx" class="legend-item">
+              <div v-for="(cnt, idx) in clusterCounts" :key="idx" class="legend-item">
                 <span :class="`swatch c${idx}`"></span> Cluster {{ idx + 1 }} ({{ cnt }})
               </div>
             </div>
@@ -133,7 +140,7 @@
               <g :transform="`translate(${m.l},${m.t})`">
                 <line :x1="0" :y1="chartInnerH" :x2="chartInnerW" :y2="chartInnerH" class="axis" />
                 <rect
-                  v-for="(cnt, i) in result.clusters.counts"
+                  v-for="(cnt, i) in clusterCounts"
                   :key="`cd-${i}`"
                   :x="i * cBarW + 4"
                   :y="yScaleCount(cnt)"
@@ -142,7 +149,7 @@
                   class="bar cluster"
                 />
                 <text
-                  v-for="(cnt, i) in result.clusters.counts"
+                  v-for="(cnt, i) in clusterCounts"
                   :key="`cdt-${i}`"
                   :x="i * cBarW + cBarW/2"
                   :y="chartInnerH + 16"
@@ -182,63 +189,57 @@
 
           <!-- Grouped Bars: Cluster Centers -->
           <div class="chart">
-            <h3>Cluster Centers — per‑cluster mean: white ratio, edge density, brightness</h3>
+            <h3>Feature Importance (Top 10)</h3>
             <svg :width="chartW" :height="chartH" class="svg-chart">
               <g :transform="`translate(${m.l},${m.t})`">
                 <line :x1="0" :y1="chartInnerH" :x2="chartInnerW" :y2="chartInnerH" class="axis" />
-                <template v-for="(c, i) in result.clusters.centers" :key="`gc-${i}`">
+                <template v-for="(imp, i) in featImp" :key="`fi-${i}`">
                   <rect
-                    :x="gX(i) + gPad"
-                    :y="yScale01(c[0])"
-                    :width="gBar"
-                    :height="chartInnerH - yScale01(c[0])"
-                    class="bar gb-f0"
+                    :x="i * fiBarW + 4"
+                    :y="yScaleFI(imp.importance)"
+                    :width="fiBarW - 8"
+                    :height="chartInnerH - yScaleFI(imp.importance)"
+                    class="bar"
                   />
-                  <rect
-                    :x="gX(i) + gPad + gBar + gGap"
-                    :y="yScale01(c[1])"
-                    :width="gBar"
-                    :height="chartInnerH - yScale01(c[1])"
-                    class="bar gb-f1"
-                  />
-                  <rect
-                    :x="gX(i) + gPad + (gBar + gGap) * 2"
-                    :y="yScale01(c[2])"
-                    :width="gBar"
-                    :height="chartInnerH - yScale01(c[2])"
-                    class="bar gb-f2"
-                  />
-                  <text :x="gX(i) + gGroup/2" :y="chartInnerH + 16" text-anchor="middle" class="tick">C{{ i+1 }}</text>
+                  <text :x="i * fiBarW + fiBarW/2" :y="chartInnerH + 16" text-anchor="middle" class="tick">{{ shortName(imp.feature) }}</text>
                 </template>
-                <!-- y ticks -->
-                <text class="tick" :x="-6" :y="yScale01(1)" text-anchor="end" dominant-baseline="middle">1.0</text>
-                <text class="tick" :x="-6" :y="yScale01(0.5)" text-anchor="end" dominant-baseline="middle">0.5</text>
-                <text class="tick" :x="-6" :y="yScale01(0)" text-anchor="end" dominant-baseline="middle">0</text>
+                <text class="tick" :x="-6" :y="yScaleFI(fiMax)" text-anchor="end" dominant-baseline="middle">{{ fiMax.toFixed(2) }}</text>
+                <text class="tick" :x="-6" :y="yScaleFI(Math.max(0, fiMax/2))" text-anchor="end" dominant-baseline="middle">{{ (fiMax/2).toFixed(2) }}</text>
+                <text class="tick" :x="-6" :y="yScaleFI(0)" text-anchor="end" dominant-baseline="middle">0</text>
               </g>
             </svg>
-            <div class="legend">
-              <div class="legend-item"><span class="swatch sw-wr"></span>White ratio</div>
-              <div class="legend-item"><span class="swatch sw-ed"></span>Edge density</div>
-              <div class="legend-item"><span class="swatch sw-br"></span>Brightness</div>
-            </div>
           </div>
         </div>
 
-        <div class="centers">
-          <h3>Cluster Centers</h3>
-          <div class="center-grid">
-            <div v-for="(c, i) in result.clusters.centers" :key="i" class="center-card">
-              <div class="center-title">Cluster {{ i + 1 }}</div>
-              <div class="center-row">
-                <span>White ratio</span><span>{{ (c[0] * 100).toFixed(1) }}%</span>
-              </div>
-              <div class="center-row">
-                <span>Edge density</span><span>{{ (c[1] * 100).toFixed(1) }}%</span>
-              </div>
-              <div class="center-row">
-                <span>Brightness</span><span>{{ (c[2] * 100).toFixed(1) }}%</span>
-              </div>
-            </div>
+        <div v-if="result && result.cluster_analysis && result.cluster_analysis.length" class="centers">
+          <h3>Cluster Analysis</h3>
+          <div class="table-wrap">
+            <table class="tl-table">
+              <thead>
+                <tr>
+                  <th>Cluster</th>
+                  <th>Size</th>
+                  <th>% of Data</th>
+                  <th>Occupied Ratio</th>
+                  <th>Mean White Ratio</th>
+                  <th>Mean Edge Density</th>
+                  <th>Mean Brightness</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in result.cluster_analysis" :key="row.cluster_id">
+                  <td>#{{
+                    (row.cluster_id ?? 0) + 1
+                  }}</td>
+                  <td>{{ row.size }}</td>
+                  <td>{{ (row.percentage || 0).toFixed(1) }}%</td>
+                  <td>{{ ((row.occupied_ratio || 0) * 100).toFixed(1) }}%</td>
+                  <td>{{ ((row.mean_white_ratio || 0) * 100).toFixed(1) }}%</td>
+                  <td>{{ ((row.mean_edge_density || 0) * 100).toFixed(1) }}%</td>
+                  <td>{{ (row.mean_brightness || 0).toFixed(1) }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -276,18 +277,19 @@ export default {
     chartInnerW() { return this.chartW - this.m.l - this.m.r },
     chartInnerH() { return this.chartH - this.m.t - this.m.b },
 
-    // histogram (white ratio)
-    maxHist() {
-      if (!this.result) return 0
-      return Math.max(...this.result.charts.histogram.counts, 0)
+    // histogram 0 (first key feature) from visualizations
+    h0() {
+      return (this.result?.visualizations?.histograms && this.result.visualizations.histograms[0]) || { name: 'Histogram', counts: [] }
     },
+    h0Name() { return this.h0?.name || 'Histogram' },
+    h0Counts() { return this.h0?.counts || [] },
+    h0Max() { return this.h0Counts.length ? Math.max(...this.h0Counts) : 0 },
     barWidth() {
-      if (!this.result) return 0
-      const n = this.result.charts.histogram.counts.length
-      return n ? this.chartInnerW / n : 0
+      const n = this.h0Counts.length || 1
+      return this.chartInnerW / n
     },
-    yTicks() {
-      const max = this.maxHist
+    h0Ticks() {
+      const max = this.h0Max
       const step = Math.max(1, Math.round(max / 5))
       const ticks = []
       for (let v = 0; v <= max; v += step) ticks.push(v)
@@ -314,26 +316,32 @@ export default {
       }
     },
 
-    // cluster distribution
+    // cluster distribution using cluster_analysis sizes
+    clusterCounts() {
+      return (this.result?.cluster_analysis || []).map(c => Number(c?.size || 0))
+    },
     cMax() {
-      if (!this.result) return 0
-      return Math.max(...(this.result.clusters.counts || [0]), 0)
+      return this.clusterCounts.length ? Math.max(...this.clusterCounts) : 0
     },
     cBarW() {
-      if (!this.result) return 0
-      const n = this.result.clusters.counts.length || 1
+      const n = this.clusterCounts.length || 1
       return this.chartInnerW / n
     },
 
-    // edge density histogram (from scatter points)
+    // edge density histogram (approximate from first scatter) – safe if missing
     edgeCounts() {
       if (!this.result) return []
-      const pts = this.result.charts.scatter.points || []
+      const pts = (this.result.visualizations?.scatter_plots?.[0]?.points) || []
+      const values = pts.map(p => Number(p?.y || 0))
+      if (!values.length) return []
       const bins = 20
+      const min = Math.min(...values), max = Math.max(...values)
+      const step = (max - min) || 1
       const counts = new Array(bins).fill(0)
-      for (const pt of pts) {
-        const v = Math.max(0, Math.min(0.999, pt.y ?? 0))
-        const idx = Math.floor(v * bins)
+      for (const v of values) {
+        let idx = Math.floor(((v - min) / step) * bins)
+        if (idx < 0) idx = 0
+        if (idx >= bins) idx = bins - 1
         counts[idx]++
       }
       return counts
@@ -346,15 +354,26 @@ export default {
       return this.chartInnerW / n
     },
 
-    // grouped bars (centers)
-    gGroup() {
-      if (!this.result) return 1
-      const k = this.result.clusters.centers.length || 1
-      return this.chartInnerW / k
+    // scatter points and domain
+    sPts() {
+      return (this.result?.visualizations?.scatter_plots?.[0]?.points) || []
     },
-    gBar() { return Math.min(22, Math.max(10, this.gGroup / 6)) },
-    gGap() { return Math.max(6, this.gBar * 0.4) },
-    gPad() { return Math.max(4, (this.gGroup - (this.gBar * 3 + this.gGap * 2)) / 2) }
+    sXmin() { return this.sPts.length ? Math.min(...this.sPts.map(p => Number(p?.x || 0))) : 0 },
+    sXmax() { return this.sPts.length ? Math.max(...this.sPts.map(p => Number(p?.x || 1))) : 1 },
+    sYmin() { return this.sPts.length ? Math.min(...this.sPts.map(p => Number(p?.y || 0))) : 0 },
+    sYmax() { return this.sPts.length ? Math.max(...this.sPts.map(p => Number(p?.y || 1))) : 1 },
+
+    // feature importance
+    featImp() {
+      return (this.result?.feature_importance || []).slice(0, 10)
+    },
+    fiMax() {
+      return this.featImp.length ? Math.max(...this.featImp.map(i => Number(i?.importance || 0))) : 0
+    },
+    fiBarW() {
+      const n = this.featImp.length || 1
+      return this.chartInnerW / n
+    }
   },
   methods: {
     async runTraining() {
@@ -362,29 +381,57 @@ export default {
       this.error = null
       this.result = null
       try {
-        const res = await axios.get(`/api/train?limit=${this.limit}`)
+        const params = { params: { limit: this.limit } }
+        let res
+        try {
+          res = await axios.get('/train', params)
+        } catch (e1) {
+          try {
+            res = await axios.get('/api/train', params)
+          } catch (e2) {
+            const detail = e2?.response?.data?.detail || e1?.response?.data?.detail
+            throw new Error(detail || (e2?.message || e1?.message || 'Training failed. Please try again.'))
+          }
+        }
         this.result = res.data
+        if (!this.result || this.result.success === false) {
+          const msg = this.result?.message || 'Training returned no data.'
+          throw new Error(msg)
+        }
       } catch (e) {
         console.error(e)
-        this.error = e?.response?.data?.detail || 'Training failed. Please try again.'
+        this.error = e?.message || 'Training failed. Please try again.'
       } finally {
         this.loading = false
       }
     },
-    // histogram scales
+    // histogram 0 scales
     xScale(i) {
       return i * this.barWidth
     },
-    yScale(v) {
-      const max = this.maxHist || 1
+    yScaleH0(v) {
+      const max = this.h0Max || 1
       return this.chartInnerH * (1 - (v / max))
     },
-    // scatter scales (x,y in [0,1])
+    // scatter scales using PCA domain
     scatterX(x) {
-      return x * this.chartInnerW
+      const min = this.sXmin, max = this.sXmax
+      const t = (Number(x) - min) / Math.max(1e-9, (max - min))
+      return t * this.chartInnerW
     },
     scatterY(y) {
-      return (1 - y) * this.chartInnerH
+      const min = this.sYmin, max = this.sYmax
+      const t = (Number(y) - min) / Math.max(1e-9, (max - min))
+      return (1 - t) * this.chartInnerH
+    },
+    // feature importance y scale
+    yScaleFI(v) {
+      const max = this.fiMax || 1
+      return this.chartInnerH * (1 - (Number(v) / max))
+    },
+    shortName(s) {
+      if (!s) return ''
+      return String(s).replace(/_/g, ' ').slice(0, 12)
     },
     // counts scales
     yScaleCount(v) {
