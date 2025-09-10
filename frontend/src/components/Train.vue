@@ -89,8 +89,8 @@
             <h3>{{ h0Name }} Histogram</h3>
             <svg :width="chartW" :height="chartH" class="svg-chart">
               <g :transform="`translate(${m.l},${m.t})`">
-                <rect 
-                  v-for="(c, i) in h0Counts" 
+                <rect
+                  v-for="(c, i) in h0Counts"
                   :key="i"
                   :x="xScale(i)"
                   :y="yScaleH0(c)"
@@ -109,8 +109,8 @@
             <h3>Scatter — PCA classical features (colored by cluster)</h3>
             <svg :width="chartW" :height="chartH" class="svg-chart">
               <g :transform="`translate(${m.l},${m.t})`">
-                <circle 
-                  v-for="(pt, i) in sPts" 
+                <circle
+                  v-for="(pt, i) in sPts"
                   :key="i"
                   :cx="scatterX(pt.x)"
                   :cy="scatterY(pt.y)"

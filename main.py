@@ -1899,14 +1899,6 @@ async def test_class67(file: UploadFile = File(...)):
 
 @app.get("/train")
 async def enhanced_ml_train(limit: int = 100):
-    """
-    Enhanced ML analysis for PKLot car detection dataset using:
-    - Deep learning feature extraction (ResNet50)
-    - Multiple clustering algorithms (KMeans, DBSCAN, Hierarchical)
-    - Advanced computer vision metrics
-    - Statistical analysis and performance metrics
-    - Comprehensive visualization data for academic presentation
-    """
     try:
         import tensorflow as tf
         from tensorflow.keras.applications import ResNet50
@@ -1922,22 +1914,21 @@ async def enhanced_ml_train(limit: int = 100):
         if kagglehub is None:
             raise HTTPException(status_code=500, detail="kagglehub not available. Please install kagglehub.")
 
-        # 1) Dataset acquisition and preprocessing
         dataset_path_str = kagglehub.dataset_download("ammarnassanalhajali/pklot-dataset")
         dataset_path = Path(dataset_path_str)
 
-        # Find images and categorize by parking status if possible
+
         image_paths = [p for p in dataset_path.rglob("*") if p.suffix.lower() in [".jpg", ".jpeg", ".png"]]
         total_found = len(image_paths)
 
         if total_found == 0:
             raise HTTPException(status_code=404, detail="No images found in PKLot dataset.")
 
-        # Smart sampling strategy - ensure diverse representation
+
         subset = image_paths[:min(limit, total_found)]
 
         # 2) Advanced feature extraction pipeline
-        # Load pre-trained ResNet50 for deep features
+
         base_model = ResNet50(weights='imagenet', include_top=False, pooling='avg')
 
         # Initialize feature containers
