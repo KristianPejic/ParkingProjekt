@@ -48,11 +48,31 @@
               <div class="label">Avg White Ratio</div>
             </div>
           </div>
+
+          <!-- Coverage gauge -->
+          <div class="card gauge-card">
+            <div class="icon">📦</div>
+            <div class="gauge-wrap">
+              <svg :width="gSize" :height="gSize" class="gauge">
+                <g :transform="`translate(${gSize/2},${gSize/2})`">
+                  <circle :r="r" class="gauge-bg" />
+                  <circle :r="r" class="gauge-fg" :style="gaugeStyle" />
+                  <text x="0" y="6" class="gauge-text" text-anchor="middle">{{ (coverageRate*100).toFixed(0) }}%</text>
+                </g>
+              </svg>
+              <div class="gauge-legend">
+                <span class="gl p">{{ result.dataset.processed_images }}</span>
+                <span class="sep">/</span>
+                <span class="gl t">{{ result.dataset.total_images_found }}</span>
+              </div>
+              <div class="gauge-label">Dataset Coverage (processed/total)</div>
+            </div>
+          </div>
         </div>
 
         <div class="charts">
           <div class="chart">
-            <h3>White Ratio Histogram</h3>
+            <h3>White Ratio Histogram — painted line visibility across dataset</h3>
             <svg :width="chartW" :height="chartH" class="svg-chart">
               <g :transform="`translate(${m.l},${m.t})`">
                 <rect 
@@ -79,7 +99,7 @@
           </div>
 
           <div class="chart">
-            <h3>Scatter: White Ratio vs Edge Density</h3>
+            <h3>Scatter — painted lines vs structural edges (colored by cluster)</h3>
             <svg :width="chartW" :height="chartH" class="svg-chart">
               <g :transform="`translate(${m.l},${m.t})`">
                 <circle 
@@ -100,6 +120,106 @@
               <div v-for="(cnt, idx) in result.clusters.counts" :key="idx" class="legend-item">
                 <span :class="`swatch c${idx}`"></span> Cluster {{ idx + 1 }} ({{ cnt }})
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- New charts from training data -->
+        <div class="charts">
+          <!-- Cluster Distribution -->
+          <div class="chart">
+            <h3>Cluster Distribution — samples per KMeans cluster (scene types)</h3>
+            <svg :width="chartW" :height="chartH" class="svg-chart">
+              <g :transform="`translate(${m.l},${m.t})`">
+                <line :x1="0" :y1="chartInnerH" :x2="chartInnerW" :y2="chartInnerH" class="axis" />
+                <rect
+                  v-for="(cnt, i) in result.clusters.counts"
+                  :key="`cd-${i}`"
+                  :x="i * cBarW + 4"
+                  :y="yScaleCount(cnt)"
+                  :width="cBarW - 8"
+                  :height="chartInnerH - yScaleCount(cnt)"
+                  class="bar cluster"
+                />
+                <text
+                  v-for="(cnt, i) in result.clusters.counts"
+                  :key="`cdt-${i}`"
+                  :x="i * cBarW + cBarW/2"
+                  :y="chartInnerH + 16"
+                  text-anchor="middle"
+                  class="tick"
+                >C{{ i+1 }}</text>
+                <text class="tick" :x="-6" :y="yScaleCount(cMax)" text-anchor="end" dominant-baseline="middle">{{ cMax }}</text>
+                <text class="tick" :x="-6" :y="yScaleCount(Math.max(1, Math.round(cMax/2)))" text-anchor="end" dominant-baseline="middle">{{ Math.max(1, Math.round(cMax/2)) }}</text>
+                <text class="tick" :x="-6" :y="yScaleCount(0)" text-anchor="end" dominant-baseline="middle">0</text>
+              </g>
+            </svg>
+            <div class="axis-label">Counts per cluster</div>
+          </div>
+
+          <!-- Edge Density Histogram (from scatter points) -->
+          <div class="chart">
+            <h3>Edge Density Histogram — structure richness across dataset</h3>
+            <svg :width="chartW" :height="chartH" class="svg-chart">
+              <g :transform="`translate(${m.l},${m.t})`">
+                <rect
+                  v-for="(c, i) in edgeCounts"
+                  :key="`eh-${i}`"
+                  :x="i * eBarW"
+                  :y="yScaleEdge(c)"
+                  :width="eBarW - 2"
+                  :height="chartInnerH - yScaleEdge(c)"
+                  class="bar edge"
+                />
+                <line :x1="0" :y1="chartInnerH" :x2="chartInnerW" :y2="chartInnerH" class="axis" />
+                <text class="tick" :x="-6" :y="yScaleEdge(edgeMax)" text-anchor="end" dominant-baseline="middle">{{ edgeMax }}</text>
+                <text class="tick" :x="-6" :y="yScaleEdge(Math.max(1, Math.round(edgeMax/2)))" text-anchor="end" dominant-baseline="middle">{{ Math.max(1, Math.round(edgeMax/2)) }}</text>
+                <text class="tick" :x="-6" :y="yScaleEdge(0)" text-anchor="end" dominant-baseline="middle">0</text>
+              </g>
+            </svg>
+            <div class="axis-label">Bins (0 → 1 edge density)</div>
+          </div>
+
+          <!-- Grouped Bars: Cluster Centers -->
+          <div class="chart">
+            <h3>Cluster Centers — per‑cluster mean: white ratio, edge density, brightness</h3>
+            <svg :width="chartW" :height="chartH" class="svg-chart">
+              <g :transform="`translate(${m.l},${m.t})`">
+                <line :x1="0" :y1="chartInnerH" :x2="chartInnerW" :y2="chartInnerH" class="axis" />
+                <template v-for="(c, i) in result.clusters.centers" :key="`gc-${i}`">
+                  <rect
+                    :x="gX(i) + gPad"
+                    :y="yScale01(c[0])"
+                    :width="gBar"
+                    :height="chartInnerH - yScale01(c[0])"
+                    class="bar gb-f0"
+                  />
+                  <rect
+                    :x="gX(i) + gPad + gBar + gGap"
+                    :y="yScale01(c[1])"
+                    :width="gBar"
+                    :height="chartInnerH - yScale01(c[1])"
+                    class="bar gb-f1"
+                  />
+                  <rect
+                    :x="gX(i) + gPad + (gBar + gGap) * 2"
+                    :y="yScale01(c[2])"
+                    :width="gBar"
+                    :height="chartInnerH - yScale01(c[2])"
+                    class="bar gb-f2"
+                  />
+                  <text :x="gX(i) + gGroup/2" :y="chartInnerH + 16" text-anchor="middle" class="tick">C{{ i+1 }}</text>
+                </template>
+                <!-- y ticks -->
+                <text class="tick" :x="-6" :y="yScale01(1)" text-anchor="end" dominant-baseline="middle">1.0</text>
+                <text class="tick" :x="-6" :y="yScale01(0.5)" text-anchor="end" dominant-baseline="middle">0.5</text>
+                <text class="tick" :x="-6" :y="yScale01(0)" text-anchor="end" dominant-baseline="middle">0</text>
+              </g>
+            </svg>
+            <div class="legend">
+              <div class="legend-item"><span class="swatch sw-wr"></span>White ratio</div>
+              <div class="legend-item"><span class="swatch sw-ed"></span>Edge density</div>
+              <div class="legend-item"><span class="swatch sw-br"></span>Brightness</div>
             </div>
           </div>
         </div>
@@ -146,12 +266,17 @@ export default {
       // chart layout
       chartW: 700,
       chartH: 320,
-      m: { l: 50, r: 20, t: 20, b: 40 }
+      m: { l: 50, r: 20, t: 20, b: 40 },
+
+      // gauge
+      gSize: 110
     }
   },
   computed: {
     chartInnerW() { return this.chartW - this.m.l - this.m.r },
     chartInnerH() { return this.chartH - this.m.t - this.m.b },
+
+    // histogram (white ratio)
     maxHist() {
       if (!this.result) return 0
       return Math.max(...this.result.charts.histogram.counts, 0)
@@ -167,7 +292,69 @@ export default {
       const ticks = []
       for (let v = 0; v <= max; v += step) ticks.push(v)
       return ticks
-    }
+    },
+
+    // coverage gauge
+    coverageRate() {
+      if (!this.result) return 0
+      const p = this.result.dataset.processed_images || 0
+      const t = this.result.dataset.total_images_found || 0
+      return t > 0 ? p / t : 0
+    },
+    r() { return (this.gSize / 2) - 8 },
+    circumference() { return 2 * Math.PI * this.r },
+    gaugeStyle() {
+      const dash = this.circumference
+      const filled = dash * this.coverageRate
+      const gap = dash - filled
+      return {
+        strokeDasharray: `${filled} ${gap}`,
+        transform: 'rotate(-90deg)',
+        transformOrigin: 'center'
+      }
+    },
+
+    // cluster distribution
+    cMax() {
+      if (!this.result) return 0
+      return Math.max(...(this.result.clusters.counts || [0]), 0)
+    },
+    cBarW() {
+      if (!this.result) return 0
+      const n = this.result.clusters.counts.length || 1
+      return this.chartInnerW / n
+    },
+
+    // edge density histogram (from scatter points)
+    edgeCounts() {
+      if (!this.result) return []
+      const pts = this.result.charts.scatter.points || []
+      const bins = 20
+      const counts = new Array(bins).fill(0)
+      for (const pt of pts) {
+        const v = Math.max(0, Math.min(0.999, pt.y ?? 0))
+        const idx = Math.floor(v * bins)
+        counts[idx]++
+      }
+      return counts
+    },
+    edgeMax() {
+      return this.edgeCounts.length ? Math.max(...this.edgeCounts) : 0
+    },
+    eBarW() {
+      const n = this.edgeCounts.length || 1
+      return this.chartInnerW / n
+    },
+
+    // grouped bars (centers)
+    gGroup() {
+      if (!this.result) return 1
+      const k = this.result.clusters.centers.length || 1
+      return this.chartInnerW / k
+    },
+    gBar() { return Math.min(22, Math.max(10, this.gGroup / 6)) },
+    gGap() { return Math.max(6, this.gBar * 0.4) },
+    gPad() { return Math.max(4, (this.gGroup - (this.gBar * 3 + this.gGap * 2)) / 2) }
   },
   methods: {
     async runTraining() {
@@ -190,8 +377,7 @@ export default {
     },
     yScale(v) {
       const max = this.maxHist || 1
-      const t = this.chartInnerH * (1 - (v / max))
-      return t
+      return this.chartInnerH * (1 - (v / max))
     },
     // scatter scales (x,y in [0,1])
     scatterX(x) {
@@ -199,6 +385,24 @@ export default {
     },
     scatterY(y) {
       return (1 - y) * this.chartInnerH
+    },
+    // counts scales
+    yScaleCount(v) {
+      const max = Math.max(1, this.cMax)
+      return (1 - (v / max)) * this.chartInnerH
+    },
+    // edge hist counts
+    yScaleEdge(v) {
+      const max = Math.max(1, this.edgeMax)
+      return (1 - (v / max)) * this.chartInnerH
+    },
+    // generic [0,1] scale
+    yScale01(v) {
+      return (1 - Math.max(0, Math.min(1, v))) * this.chartInnerH
+    },
+    // group x
+    gX(i) {
+      return i * this.gGroup
     }
   }
 }
@@ -287,6 +491,29 @@ export default {
 .card .icon { font-size: 2rem; }
 .card .info .value { font-size: 1.6rem; font-weight: bold; }
 .card .info .label { opacity: 0.8; font-size: 0.9rem; }
+.gauge-card { align-items: center; gap: 0.75rem; }
+.gauge-wrap { display: flex; align-items: center; gap: 0.75rem; }
+.gauge {
+  display: block;
+}
+.gauge-bg {
+  fill: none;
+  stroke: rgba(255,255,255,0.2);
+  stroke-width: 10;
+}
+.gauge-fg {
+  fill: none;
+  stroke: #74b9ff;
+  stroke-width: 10;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.6s ease;
+}
+.gauge-text { fill: white; font-weight: 600; font-size: 0.9rem; }
+.gauge-legend { color: rgba(255,255,255,0.85); display: flex; align-items: center; gap: 0.25rem; }
+.gauge-label { font-size: 0.8rem; opacity: 0.85; }
+.gl.p { color: #74b9ff; }
+.gl.t { color: #bbb; }
+.sep { color: #777; }
 
 .charts {
   display: grid;
@@ -305,9 +532,13 @@ export default {
 }
 
 .bar {
-  fill: url(#grad);
   fill: rgba(102, 126, 234, 0.9);
 }
+.bar.cluster { fill: rgba(255, 159, 67, 0.9); }
+.bar.edge { fill: rgba(52, 152, 219, 0.9); }
+.bar.gb-f0 { fill: #6c5ce7; } /* white ratio */
+.bar.gb-f1 { fill: #e17055; } /* edge density */
+.bar.gb-f2 { fill: #9b59b6; } /* brightness */
 
 .axis {
   stroke: rgba(255,255,255,0.6);
@@ -338,6 +569,10 @@ export default {
 .swatch.c0 { background: #ff7675; }
 .swatch.c1 { background: #74b9ff; }
 .swatch.c2 { background: #55efc4; }
+.swatch.sw-wr { background: #6c5ce7; }
+.swatch.sw-ed { background: #e17055; }
+.swatch.sw-br { background: #9b59b6; }
+
 .dot { opacity: 0.9; }
 .dot.c0 { fill: #ff7675; }
 .dot.c1 { fill: #74b9ff; }

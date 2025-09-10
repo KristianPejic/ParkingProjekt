@@ -52,7 +52,7 @@
             <div class="stat-label">Free Slots</div>
           </div>
 
-          <div class="stat-card occupied">
+        <div class="stat-card occupied">
             <div class="stat-number">{{ result.occupied_slots }}</div>
             <div class="stat-label">Occupied Slots</div>
           </div>
@@ -65,6 +65,35 @@
           <div class="stat-card confidence">
             <div class="stat-number">{{ (result.confidence * 100).toFixed(1) }}%</div>
             <div class="stat-label">Confidence</div>
+          </div>
+        </div>
+
+        <div class="mini-charts">
+          <div class="gauge-card">
+            <h4>Occupancy</h4>
+            <svg :width="gSize" :height="gSize" class="gauge">
+              <g :transform="`translate(${gSize/2},${gSize/2})`">
+                <circle :r="r" class="gauge-bg" />
+                <circle
+                  :r="r"
+                  class="gauge-fg"
+                  :style="gaugeStyle"
+                />
+                <text x="0" y="6" class="gauge-text" text-anchor="middle">
+                  {{ Math.round(occRate * 100) }}%
+                </text>
+              </g>
+            </svg>
+            <div class="gauge-legend">
+              <span class="gl free">Free: {{ result.free_slots }}</span>
+              <span class="gl occ">Occupied: {{ result.occupied_slots }}</span>
+            </div>
+          </div>
+
+          <div class="gauge-card" v-if="result.detections?.length">
+            <h4>Vehicles Detected</h4>
+            <div class="big-number">{{ result.detections.length }}</div>
+            <div class="small-note">objects classified as vehicles</div>
           </div>
         </div>
 
@@ -94,7 +123,32 @@ export default {
       totalSlots: 20,
       loading: false,
       result: null,
-      error: null
+      error: null,
+
+      gSize: 140
+    }
+  },
+  computed: {
+    occRate() {
+      if (!this.result) return 0
+      const t = this.result.total_slots || (this.result.free_slots + this.result.occupied_slots) || 0
+      return t > 0 ? this.result.occupied_slots / t : 0
+    },
+    r() {
+      return (this.gSize / 2) - 10
+    },
+    circumference() {
+      return 2 * Math.PI * this.r
+    },
+    gaugeStyle() {
+      const dash = this.circumference
+      const filled = dash * this.occRate
+      const gap = dash - filled
+      return {
+        strokeDasharray: `${filled} ${gap}`,
+        transform: 'rotate(-90deg)',
+        transformOrigin: 'center'
+      }
     }
   },
   methods: {
@@ -116,7 +170,6 @@ export default {
       this.result = null
       this.error = null
 
-      // Create preview
       const reader = new FileReader()
       reader.onload = (e) => {
         this.imagePreview = e.target.result
@@ -309,7 +362,7 @@ export default {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 1rem;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
 }
 
 .stat-card {
@@ -350,6 +403,51 @@ export default {
   font-size: 0.9rem;
   opacity: 0.8;
 }
+
+/* Mini charts */
+.mini-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0 2rem;
+}
+.gauge-card {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 12px;
+  padding: 1rem;
+  text-align: center;
+}
+.gauge {
+  display: block;
+  margin: 0 auto;
+}
+.gauge-bg {
+  fill: none;
+  stroke: rgba(255,255,255,0.2);
+  stroke-width: 12;
+}
+.gauge-fg {
+  fill: none;
+  stroke: #74b9ff;
+  stroke-width: 12;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.6s ease;
+}
+.gauge-text {
+  fill: white;
+  font-weight: 600;
+  font-size: 1rem;
+}
+.gauge-legend {
+  margin-top: 0.5rem;
+  color: rgba(255,255,255,0.85);
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+.gl.free { color: #2ecc71; }
+.gl.occ { color: #e74c3c; }
 
 .result-image {
   text-align: center;

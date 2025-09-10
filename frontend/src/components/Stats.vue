@@ -134,8 +134,98 @@
           </div>
         </div>
 
+        <!-- New Charts -->
+        <div v-if="history.length" class="charts">
+          <h3 class="charts-title">Parking Usage Charts</h3>
+          <div class="charts-grid">
+            <!-- Occupancy Trend Line -->
+            <div class="chart-card">
+              <h4>Occupancy Trend — % of slots occupied per detection (last {{ trendPoints.length }})</h4>
+              <svg :width="chartW" :height="chartH" class="svg-chart">
+                <g :transform="`translate(${m.l},${m.t})`">
+                  <line :x1="0" :y1="innerH" :x2="innerW" :y2="innerH" class="axis" />
+                  <line :x1="0" :y1="0" :x2="0" :y2="innerH" class="axis" />
+                  <polyline
+                    class="line occ-line"
+                    :points="trendPolyline"
+                    fill="none"
+                  />
+                  <circle
+                    v-for="(p, i) in trendPoints"
+                    :key="`occ-${i}`"
+                    :cx="xScale(i, trendPoints.length)"
+                    :cy="yScale01(p.occRate)"
+                    r="3"
+                    class="dot occ-dot"
+                  />
+                  <text :x="-8" :y="yScale01(1)" class="tick" text-anchor="end" dominant-baseline="middle">100%</text>
+                  <text :x="-8" :y="yScale01(0.5)" class="tick" text-anchor="end" dominant-baseline="middle">50%</text>
+                  <text :x="-8" :y="yScale01(0)" class="tick" text-anchor="end" dominant-baseline="middle">0%</text>
+                </g>
+              </svg>
+              <div class="axis-label">Most recent on the right</div>
+            </div>
+
+            <!-- Stacked Bars: Free vs Occupied -->
+            <div class="chart-card">
+              <h4>Slots per Detection — Free vs Occupied (counts)</h4>
+              <svg :width="chartW" :height="chartH" class="svg-chart">
+                <g :transform="`translate(${m.l},${m.t})`">
+                  <line :x1="0" :y1="innerH" :x2="innerW" :y2="innerH" class="axis" />
+                  <template v-for="(p, i) in barPoints" :key="`bar-${i}`">
+                    <rect
+                      :x="xBand(i, barPoints.length) + 1"
+                      :y="yScaleSlots(p.occupied)"
+                      :width="bandW - 2"
+                      :height="innerH - yScaleSlots(p.occupied)"
+                      class="bar occupied"
+                    />
+                    <rect
+                      :x="xBand(i, barPoints.length) + 1"
+                      :y="yScaleSlots(p.occupied + p.free)"
+                      :width="bandW - 2"
+                      :height="yScaleSlots(p.occupied) - yScaleSlots(p.occupied + p.free)"
+                      class="bar free"
+                    />
+                  </template>
+                  <text class="tick" :x="-6" :y="yScaleSlots(maxSlots)" text-anchor="end" dominant-baseline="middle">{{ maxSlots }}</text>
+                  <text class="tick" :x="-6" :y="yScaleSlots(Math.round(maxSlots/2))" text-anchor="end" dominant-baseline="middle">{{ Math.round(maxSlots/2) }}</text>
+                  <text class="tick" :x="-6" :y="yScaleSlots(0)" text-anchor="end" dominant-baseline="middle">0</text>
+                </g>
+              </svg>
+              <div class="legend">
+                <div class="legend-item"><span class="swatch sw-occupied"></span>Occupied</div>
+                <div class="legend-item"><span class="swatch sw-free"></span>Free</div>
+              </div>
+            </div>
+
+            <!-- Confidence Histogram -->
+            <div class="chart-card">
+              <h4>Detection Confidence Distribution — model certainty histogram</h4>
+              <svg :width="chartW" :height="chartH" class="svg-chart">
+                <g :transform="`translate(${m.l},${m.t})`">
+                  <line :x1="0" :y1="innerH" :x2="innerW" :y2="innerH" class="axis" />
+                  <rect
+                    v-for="(c, i) in confHist.counts"
+                    :key="`h-${i}`"
+                    :x="i * confBarW + 1"
+                    :y="yScaleCounts(c)"
+                    :width="confBarW - 2"
+                    :height="innerH - yScaleCounts(c)"
+                    class="bar conf"
+                  />
+                  <text class="tick" :x="-6" :y="yScaleCounts(confMax)" text-anchor="end" dominant-baseline="middle">{{ confMax }}</text>
+                  <text class="tick" :x="-6" :y="yScaleCounts(Math.max(1, Math.round(confMax/2)))" text-anchor="end" dominant-baseline="middle">{{ Math.max(1, Math.round(confMax/2)) }}</text>
+                  <text class="tick" :x="-6" :y="yScaleCounts(0)" text-anchor="end" dominant-baseline="middle">0</text>
+                </g>
+              </svg>
+              <div class="axis-label">Confidence bins (0 → 1)</div>
+            </div>
+          </div>
+        </div>
+
         <div class="refresh-section">
-          <button @click="loadStats" :disabled="loading" class="refresh-btn">
+          <button @click="refreshAll" :disabled="loading" class="refresh-btn">
             <span v-if="loading">🔄 Refreshing...</span>
             <span v-else>🔄 Refresh Statistics</span>
           </button>
@@ -154,24 +244,119 @@ export default {
     return {
       stats: null,
       loading: true,
-      showImage: false
+      showImage: false,
+      history: [],
+      chartW: 700,
+      chartH: 280,
+      m: { l: 45, r: 15, t: 15, b: 35 }
+    }
+  },
+  computed: {
+    innerW() { return this.chartW - this.m.l - this.m.r },
+    innerH() { return this.chartH - this.m.t - this.m.b },
+
+    trendPoints() {
+      const N = Math.min(30, this.history.length)
+      const items = this.history.slice(-N)
+      return items.map(r => {
+        const total = r.total_slots || (r.free_slots + r.occupied_slots) || 0
+        const occRate = total > 0 ? (r.occupied_slots / total) : 0
+        return { occRate: Math.max(0, Math.min(1, occRate)) }
+      })
+    },
+    trendPolyline() {
+      if (!this.trendPoints.length) return ''
+      const n = this.trendPoints.length
+      return this.trendPoints.map((p, i) => `${this.xScale(i, n)},${this.yScale01(p.occRate)}`).join(' ')
+    },
+
+    barPoints() {
+      const N = Math.min(20, this.history.length)
+      const items = this.history.slice(-N)
+      return items.map(r => ({
+        occupied: r.occupied_slots || 0,
+        free: r.free_slots || 0,
+        total: (r.total_slots || ((r.free_slots || 0) + (r.occupied_slots || 0))) || 0
+      }))
+    },
+    maxSlots() {
+      const vals = this.barPoints.map(p => p.total)
+      return vals.length ? Math.max(...vals) : 0
+    },
+    bandW() {
+      const n = this.barPoints.length || 1
+      return this.innerW / n
+    },
+
+    confHist() {
+      const bins = 10
+      const counts = new Array(bins).fill(0)
+      for (const r of this.history) {
+        const c = Math.max(0, Math.min(0.999, r.confidence ?? 0))
+        const idx = Math.floor(c * bins)
+        counts[idx]++
+      }
+      return { bins, counts }
+    },
+    confMax() {
+      return this.confHist.counts.length ? Math.max(...this.confHist.counts) : 0
+    },
+    confBarW() {
+      const n = this.confHist.counts.length || 1
+      return this.innerW / n
     }
   },
   async mounted() {
-    await this.loadStats()
+    await this.refreshAll()
   },
   methods: {
-    async loadStats() {
+    async refreshAll() {
       this.loading = true
+      try {
+        await Promise.all([this.loadStats(), this.loadHistory()])
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async loadStats() {
       try {
         const response = await axios.get('/api/stats')
         this.stats = response.data
       } catch (error) {
         console.error('Error loading stats:', error)
         this.stats = null
-      } finally {
-        this.loading = false
       }
+    },
+
+    async loadHistory() {
+      try {
+        const response = await axios.get(`/api/history?limit=100`)
+        this.history = response.data.results || []
+      } catch (error) {
+        console.error('Error loading history:', error)
+        this.history = []
+      }
+    },
+
+    xScale(i, n) {
+      if (!n) return 0
+      return (i / Math.max(1, n - 1)) * this.innerW
+    },
+    yScale01(v) {
+      return (1 - v) * this.innerH
+    },
+    xBand(i, n) {
+      if (!n) return 0
+      return i * this.bandW
+    },
+    yScaleSlots(v) {
+      const max = Math.max(1, this.maxSlots)
+      return (1 - (v / max)) * this.innerH
+    },
+    yScaleCounts(v) {
+      const max = Math.max(1, this.confMax)
+      return (1 - (v / max)) * this.innerH
     },
 
     formatDate(timestamp) {
@@ -255,7 +440,7 @@ h2 {
 }
 
 .latest-result {
-  margin-bottom: 3rem;
+  margin-bottom: 2rem;
 }
 
 .latest-result h3 {
@@ -358,6 +543,77 @@ h2 {
 .latest-image img:hover {
   transform: scale(1.02);
 }
+
+/* New charts */
+.charts {
+  margin-top: 1rem;
+}
+.charts-title {
+  color: white;
+  margin-bottom: 0.75rem;
+  font-size: 1.3rem;
+}
+.charts-grid {
+  display: grid;
+  grid-template-columns: 1fr; /* stack charts vertically */
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+}
+.chart-card {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 1rem;
+  color: white;
+}
+.chart-card h4 {
+  margin-bottom: 0.5rem;
+}
+.svg-chart {
+  background: rgba(0,0,0,0.2);
+  border-radius: 10px;
+}
+.axis {
+  stroke: rgba(255,255,255,0.6);
+  stroke-width: 1;
+}
+.tick {
+  fill: rgba(255,255,255,0.8);
+  font-size: 0.75rem;
+}
+.axis-label {
+  color: rgba(255,255,255,0.7);
+  font-size: 0.85rem;
+  margin-top: 0.4rem;
+  text-align: center;
+}
+.line.occ-line {
+  stroke: #74b9ff;
+  stroke-width: 2;
+}
+.dot.occ-dot {
+  fill: #74b9ff;
+}
+.bar.occupied {
+  fill: rgba(231, 76, 60, 0.8);
+}
+.bar.free {
+  fill: rgba(46, 204, 113, 0.85);
+}
+.bar.conf {
+  fill: rgba(155, 89, 182, 0.85);
+}
+.legend {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  color: rgba(255,255,255,0.9);
+}
+.legend-item { display: flex; align-items: center; gap: 0.5rem; }
+.swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.swatch.sw-occupied { background: rgba(231,76,60,0.8); }
+.swatch.sw-free { background: rgba(46,204,113,0.85); }
 
 .insights h3 {
   color: white;
